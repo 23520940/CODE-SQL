@@ -1,0 +1,97 @@
+SELECT *FROM ChuyenGia
+ORDER BY HoTen 
+SELECT HoTen,SoDienThoai from ChuyenGia
+where ChuyenNganh =N'Phát triển phần mềm';
+select *from CongTy
+where SoNhanVien > 100;
+select TenDuAn,NgayBatDau from DuAn
+where year(NgayBatDau) = 2023;
+select *from KyNang
+order by TenKyNang;
+select HoTen,Email from ChuyenGia
+where 2024 - year(ngaysinh) < 35;
+select HoTen,ChuyenNganh from ChuyenGia
+where GioiTinh = N'Nữ';
+select TenKyNang from KyNang
+where LoaiKyNang = N'Công nghệ';
+select TenCongTy,DiaChi from CongTy
+where LinhVuc=N'Phân tích dữ liệu';
+select TenDuAn from DuAn
+where TrangThai=N'Hoàn thành';
+select HoTen,NamKinhNghiem FROM ChuyenGia
+ORDER BY NamKinhNghiem DESC;
+SELECT TenCongTy,SoNhanVien from CONGTY
+Where SoNhanVien >= 100 and SoNhanVien <= 200;
+SELECT TenDuAn,NgayKetThuc from DuAn
+where year(getdate())- YEAR(NgaYKetThuc) >= 0;
+select HoTen,email from ChuyenGia
+where HoTen LIKE 'N%';
+select TenKyNang , LoaiKyNang from KyNang
+where LoaiKyNang NOT IN (N'Ngôn ngữ lập trình');
+SELECT TenCongTy,LinhVuc from CongTy
+order by LinhVuc;
+select HoTen,ChuyenNganh from ChuyenGia
+where NamKinhNghiem > 5  and GioiTinh=N'Nam';
+select *from ChuyenGia;
+select HoTen,email from ChuyenGia
+where GioiTinh=N'Nữ'
+SELECT TenCongTy,SoNhanVien from CongTy
+order by SoNhanVien desc;
+select * from DuAn
+where TrangThai=N'Đang thực hiện';
+SELECT*FROM KyNang
+WHERE LOAIKYNANG=N'Ngôn ngữ lập trình';
+SELECT HoTen,ChuyenNganh from ChuyenGia
+where NamKinhNghiem > 8;
+SELECT *FROM DuAn
+where MaDuAn=1;
+select ChuyenNganh, count(*) as SoLuongChuyenNganh  from ChuyenGia
+group by ChuyenNganh;
+select  * from ChuyenGia
+where NamKinhNghiem = ( select MAX(NamKinhNghiem)  from ChuyenGia);
+SELECT TenCongTy,SoNhanVien from CongTy
+where SoNhanVien > 100
+order by SoNhanVien ASC;
+Select CongTy.TenCongTy,count(DuAn.MaDuAn) as SoLuongDuAnDangThucHien
+from CongTy
+JOIN DuAn on CongTy.MaCongTy = DuAn.MaCongTy
+where DuAn.TrangThai =N'Đang thực hiện'
+group by CongTy.TenCongTy
+having count (DuAn.MaDuAn) > 1
+order by SoLuongDuAnDangThucHien DESC;
+
+SELECT KN.TenKyNang, COUNT(DISTINCT CGKN.MaChuyenGia) AS SoChuyenGia
+FROM dbo.KyNang AS KN 
+JOIN dbo.ChuyenGia_KyNang AS CGKN ON KN.MaKyNang = CGKN.MaKyNang
+WHERE CGKN.CapDo >= 4
+GROUP BY KN.TenKyNang
+HAVING COUNT(DISTINCT CGKN.MaChuyenGia) > 2
+ORDER BY KN.TenKyNang ASC;
+
+SELECT CongTy.TenCongTy, SUM(SoNhanVien) AS TongSoNhanVien
+FROM dbo.CongTy 
+WHERE CongTy.LinhVuc = N'Điện toán đám mây'
+GROUP BY CongTy.TenCongTy
+ORDER BY TongSoNhanVien ASC
+
+SELECT CongTy.TenCongTy, AVG(SoNhanVien) AS NhanVienTrungBinh
+FROM dbo.CongTy
+WHERE CongTy.SoNhanVien BETWEEN 50 AND 150
+GROUP BY CongTy.TenCongTy
+ORDER BY CongTy.TenCongTy ASC
+
+SELECT CG.HoTen, COUNT(DISTINCT CGKN.MaKyNang) AS SoLuongKyNang
+FROM dbo.ChuyenGia_KyNang AS CGKN 
+JOIN dbo.ChuyenGia AS CG ON CGKN.MaChuyenGia = CG.MaChuyenGia
+WHERE CGKN.CapDo = 5
+GROUP BY CG.HoTen
+HAVING COUNT(DISTINCT CGKN.MaKyNang) >= 1
+ORDER BY CG.HoTen
+
+SELECT CG.HoTen, AVG(CGKN.MaKyNang) AS TrungBinhCapDo
+FROM dbo.ChuyenGia AS CG 
+JOIN dbo.ChuyenGia_KyNang AS CGKN ON CG.MaChuyenGia = CGKN.MaChuyenGia
+WHERE CG.ChuyenNganh = N'Phát triển phần mềm' 
+GROUP BY CG.HoTen
+HAVING AVG(CGKN.MaKyNang) > 3
+ORDER BY TrungBinhCapDo DESC
