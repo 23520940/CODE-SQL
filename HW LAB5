@@ -1,0 +1,293 @@
+use HW
+-- 101. Tạo một trigger để tự động cập nhật trường NgayCapNhat trong bảng ChuyenGia mỗi khi có sự thay đổi thông tin.
+
+CREATE TRIGGER trg_UpdateNgayCapNhat
+ON ChuyenGia
+AFTER UPDATE
+AS
+BEGIN
+    -- Cập nhật trường NgayCapNhat mỗi khi có sự thay đổi
+    UPDATE ChuyenGia
+    SET NgayCapNhat = GETDATE()
+    FROM ChuyenGia C
+    INNER JOIN inserted I ON C.MaChuyenGia = I.MaChuyenGia
+    WHERE C.MaChuyenGia = I.MaChuyenGia;
+END;
+--Tạo một trigger để ghi log mỗi khi có sự thay đổi trong bảng DuAn.
+CREATE TABLE LogDuAn (
+    MaLog INT IDENTITY(1,1) PRIMARY KEY,
+    MaDuAn INT,
+    TenDuAn NVARCHAR(200),
+    HanhDong NVARCHAR(10),
+    ThoiGian DATETIME,
+    DuLieuCu NVARCHAR(200),
+    DuLieuMoi NVARCHAR(200),
+    NguoiThucHien NVARCHAR(100)
+);
+CREATE TRIGGER trg_LogDuAn
+ON DuAn
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    DECLARE @HanhDong NVARCHAR(10);
+    DECLARE @MaDuAn INT;
+    DECLARE @TenDuAn NVARCHAR(200);
+    DECLARE @DuLieuCu NVARCHAR(200);
+    DECLARE @DuLieuMoi NVARCHAR(200);
+
+    -- Xử lý hành động INSERT
+    IF EXISTS (SELECT 1 FROM inserted)
+    BEGIN
+        SET @HanhDong = 'INSERT';
+        SELECT @MaDuAn = MaDuAn, @TenDuAn = TenDuAn
+        FROM inserted;
+        SET @DuLieuCu = NULL;
+        SET @DuLieuMoi = 'MaDuAn: ' + CAST(@MaDuAn AS NVARCHAR) + ', TenDuAn: ' + @TenDuAn;
+    END
+
+    -- Xử lý hành động UPDATE
+    IF EXISTS (SELECT 1 FROM inserted) AND EXISTS (SELECT 1 FROM deleted)
+    BEGIN
+        SET @HanhDong = 'UPDATE';
+        SELECT @MaDuAn = MaDuAn, @TenDuAn = TenDuAn
+        FROM inserted;
+        SET @DuLieuCu = (SELECT TOP 1 TenDuAn FROM deleted);
+        SET @DuLieuMoi = @TenDuAn;
+    END
+
+    -- Xử lý hành động DELETE
+    IF EXISTS (SELECT 1 FROM deleted)
+    BEGIN
+        SET @HanhDong = 'DELETE';
+        SELECT @MaDuAn = MaDuAn, @TenDuAn = TenDuAn
+        FROM deleted;
+        SET @DuLieuCu = @TenDuAn;
+        SET @DuLieuMoi = NULL;
+    END
+
+    -- Ghi log vào bảng LogDuAn
+    INSERT INTO LogDuAn (MaDuAn, TenDuAn, HanhDong, ThoiGian, DuLieuCu, DuLieuMoi, NguoiThucHien)
+    VALUES (@MaDuAn, @TenDuAn, @HanhDong, GETDATE(), @DuLieuCu, @DuLieuMoi, SYSTEM_USER);
+END;
+--103 
+CREATE TRIGGER trg_LimitChuyenGiaDuAn
+ON ChuyenGia_DuAn
+AFTER INSERT
+AS
+BEGIN
+    -- Biến để lưu mã chuyên gia
+    DECLARE @MaChuyenGia INT;
+
+    -- Lấy mã chuyên gia từ bảng inserted (bảng này chứa các bản ghi vừa được chèn vào)
+    SELECT @MaChuyenGia = MaChuyenGia FROM inserted;
+
+    -- Kiểm tra số lượng dự án mà chuyên gia đang tham gia
+    DECLARE @SoLuongDuAn INT;
+    SELECT @SoLuongDuAn = COUNT(*) 
+    FROM ChuyenGia_DuAn 
+    WHERE MaChuyenGia = @MaChuyenGia;
+
+    -- Nếu chuyên gia tham gia quá 5 dự án, gây lỗi và không cho phép thêm
+    IF @SoLuongDuAn > 5
+    BEGIN
+        RAISERROR('Chuyên gia này đã tham gia vào quá 5 dự án!', 16, 1);
+        ROLLBACK;  -- Hủy bỏ thao tác INSERT
+    END
+END;
+
+--104
+CREATE TRIGGER trg_UpdateSoNhanVien
+ON ChuyenGia_DuAn
+AFTER INSERT, DELETE
+AS
+BEGIN
+    -- Biến để lưu mã công ty
+    DECLARE @MaCongTy INT;
+
+    -- Nếu là thao tác INSERT (thêm chuyên gia vào dự án)
+    IF EXISTS (SELECT 1 FROM inserted)
+    BEGIN
+        -- Lấy mã công ty từ bảng inserted (bảng này chứa các bản ghi mới được chèn vào)
+        SELECT @MaCongTy = MaCongTy FROM DuAn WHERE MaDuAn IN (SELECT MaDuAn FROM inserted);
+
+        -- Cập nhật số lượng nhân viên của công ty (tăng 1)
+        UPDATE CongTy
+        SET SoNhanVien = SoNhanVien + 1
+        WHERE MaCongTy = @MaCongTy;
+    END
+
+    -- Nếu là thao tác DELETE (xóa chuyên gia khỏi dự án)
+    IF EXISTS (SELECT 1 FROM deleted)
+    BEGIN
+        -- Lấy mã công ty từ bảng deleted (bảng này chứa các bản ghi đã bị xóa)
+        SELECT @MaCongTy = MaCongTy FROM DuAn WHERE MaDuAn IN (SELECT MaDuAn FROM deleted);
+
+        -- Cập nhật số lượng nhân viên của công ty (giảm 1)
+        UPDATE CongTy
+        SET SoNhanVien = SoNhanVien - 1
+        WHERE MaCongTy = @MaCongTy;
+    END
+END;
+--105
+CREATE TRIGGER trg_PreventDeleteCompletedProjects
+ON DuAn
+AFTER DELETE
+AS
+BEGIN
+    -- Biến để lưu mã dự án
+    DECLARE @MaDuAn INT;
+    DECLARE @TrangThai NVARCHAR(50);
+
+    -- Lấy mã và trạng thái của dự án bị xóa
+    SELECT @MaDuAn = MaDuAn FROM deleted;
+    SELECT @TrangThai = TrangThai FROM DuAn WHERE MaDuAn = @MaDuAn;
+
+    -- Kiểm tra nếu trạng thái của dự án là "Hoàn thành"
+    IF @TrangThai = N'Hoàn thành'
+    BEGIN
+        -- Nếu dự án đã hoàn thành, thông báo lỗi và hủy bỏ thao tác xóa
+        RAISERROR('Không thể xóa dự án đã hoàn thành!', 16, 1);
+        ROLLBACK;  -- Hủy thao tác DELETE
+    END
+END;
+--106 
+CREATE TRIGGER trg_UpdateCapDoKyNang
+ON ChuyenGia_DuAn
+AFTER INSERT
+AS
+BEGIN
+    -- Biến để lưu mã chuyên gia và mã dự án
+    DECLARE @MaChuyenGia INT;
+    DECLARE @MaDuAn INT;
+    DECLARE @VaiTro NVARCHAR(50);
+
+    -- Lấy mã chuyên gia, mã dự án và vai trò từ bảng inserted (bảng chứa các bản ghi mới chèn vào)
+    SELECT @MaChuyenGia = MaChuyenGia, @MaDuAn = MaDuAn, @VaiTro = VaiTro FROM inserted;
+
+    -- Tùy thuộc vào vai trò trong dự án, cập nhật cấp độ kỹ năng của chuyên gia
+    -- Ví dụ: Nếu vai trò là "Trưởng nhóm phát triển", nâng cấp cấp độ kỹ năng của chuyên gia
+
+    IF @VaiTro = N'Trưởng nhóm phát triển'
+    BEGIN
+        -- Cập nhật cấp độ kỹ năng cao hơn (Ví dụ: 5)
+        UPDATE ChuyenGia_KyNang
+        SET CapDo = 5
+        WHERE MaChuyenGia = @MaChuyenGia;
+    END
+    ELSE IF @VaiTro = N'Kỹ sư AI'
+    BEGIN
+        -- Cập nhật cấp độ kỹ năng trung bình (Ví dụ: 4)
+        UPDATE ChuyenGia_KyNang
+        SET CapDo = 4
+        WHERE MaChuyenGia = @MaChuyenGia AND MaKyNang = (SELECT MaKyNang FROM KyNang WHERE TenKyNang = N'Machine Learning');
+    END
+    ELSE IF @VaiTro = N'Chuyên gia bảo mật'
+    BEGIN
+        -- Cập nhật cấp độ kỹ năng (Ví dụ: 4) cho kỹ năng bảo mật
+        UPDATE ChuyenGia_KyNang
+        SET CapDo = 4
+        WHERE MaChuyenGia = @MaChuyenGia AND MaKyNang = (SELECT MaKyNang FROM KyNang WHERE TenKyNang = N'Security');
+    END
+    -- Có thể thêm các điều kiện khác cho các vai trò khác ở đây
+
+END;
+--107
+CREATE TABLE Log_KyNang (
+    LogID INT IDENTITY(1,1) PRIMARY KEY,  -- Mã log tự động tăng
+    MaChuyenGia INT,                      -- Mã chuyên gia
+    MaKyNang INT,                         -- Mã kỹ năng
+    CapDoCu INT,                          -- Cấp độ cũ
+    CapDoMoi INT,                         -- Cấp độ mới
+    ThoiGianThayDoi DATETIME DEFAULT GETDATE()  -- Thời gian thay đổi
+);
+CREATE TRIGGER trg_LogCapDoKyNang
+ON ChuyenGia_KyNang
+AFTER UPDATE
+AS
+BEGIN
+    -- Biến để lưu thông tin về chuyên gia và kỹ năng
+    DECLARE @MaChuyenGia INT;
+    DECLARE @MaKyNang INT;
+    DECLARE @CapDoCu INT;
+    DECLARE @CapDoMoi INT;
+
+    -- Lấy thông tin về chuyên gia và kỹ năng trong bảng "inserted" và "deleted"
+    -- "inserted" chứa giá trị mới sau khi cập nhật
+    -- "deleted" chứa giá trị cũ trước khi cập nhật
+    SELECT 
+        @MaChuyenGia = MaChuyenGia, 
+        @MaKyNang = MaKyNang, 
+        @CapDoCu = CapDo 
+    FROM deleted;
+
+    SELECT 
+        @CapDoMoi = CapDo 
+    FROM inserted;
+
+    -- Kiểm tra nếu cấp độ kỹ năng đã thay đổi
+    IF @CapDoCu != @CapDoMoi
+    BEGIN
+        -- Ghi lại log thay đổi cấp độ kỹ năng
+        INSERT INTO Log_KyNang (MaChuyenGia, MaKyNang, CapDoCu, CapDoMoi, ThoiGianThayDoi)
+        VALUES (@MaChuyenGia, @MaKyNang, @CapDoCu, @CapDoMoi, GETDATE());
+    END
+END;
+-- 108
+CREATE TRIGGER trg_CheckNgayKetThuc
+ON DuAn
+AFTER INSERT, UPDATE
+AS
+BEGIN
+    -- Biến để lưu trữ ngày bắt đầu và ngày kết thúc của dự án
+    DECLARE @NgayBatDau DATE;
+    DECLARE @NgayKetThuc DATE;
+
+    -- Lấy thông tin từ bảng inserted
+    SELECT 
+        @NgayBatDau = NgayBatDau, 
+        @NgayKetThuc = NgayKetThuc
+    FROM inserted;
+
+    -- Kiểm tra điều kiện: nếu ngày kết thúc <= ngày bắt đầu
+    IF @NgayKetThuc <= @NgayBatDau
+    BEGIN
+        -- Nếu điều kiện không hợp lệ, trả về lỗi và hủy thao tác
+        RAISERROR('Ngày kết thúc của dự án phải lớn hơn ngày bắt đầu!', 16, 1);
+        ROLLBACK;  -- Hủy bỏ thao tác INSERT hoặc UPDATE
+    END
+END;
+--109
+CREATE TRIGGER trg_DeleteChuyenGia_KyNang
+ON KyNang
+AFTER DELETE
+AS
+BEGIN
+    -- Xóa các bản ghi liên quan trong bảng ChuyenGia_KyNang khi một kỹ năng bị xóa
+    DELETE FROM ChuyenGia_KyNang
+    WHERE MaKyNang IN (SELECT MaKyNang FROM deleted);
+END;
+--110 
+CREATE TRIGGER trg_CheckMaxDuAn
+ON DuAn
+AFTER INSERT
+AS
+BEGIN
+    DECLARE @MaCongTy INT;
+    DECLARE @SoDuAnDangThucHien INT;
+
+    -- Lấy mã công ty của dự án vừa được thêm
+    SELECT @MaCongTy = MaCongTy FROM inserted;
+
+    -- Đếm số lượng dự án "Đang thực hiện" của công ty
+    SELECT @SoDuAnDangThucHien = COUNT(*)
+    FROM DuAn
+    WHERE MaCongTy = @MaCongTy AND TrangThai = N'Đang thực hiện';
+
+    -- Kiểm tra nếu số dự án "Đang thực hiện" của công ty vượt quá 10
+    IF @SoDuAnDangThucHien > 10
+    BEGIN
+        -- Nếu vượt quá 10, trả về lỗi và hủy thao tác
+        RAISERROR('Công ty không thể có quá 10 dự án "Đang thực hiện" cùng một lúc!', 16, 1);
+        ROLLBACK;  -- Hủy thao tác INSERT
+    END
+END;
