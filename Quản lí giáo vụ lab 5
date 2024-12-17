@@ -1,0 +1,206 @@
+CREATE TRIGGER CHECK_LOPTRUONG
+ON LOP 
+AFTER INSERT , UPDATE
+AS
+BEGIN
+if exists (SELECT 1 FROM inserted as i
+inner join HOCVIEN AS HV
+on HV.MALOP = i.MALOP
+where HV.MAHV = i.TRGLOP)
+begin
+raiserror('loi',16,1)
+rollback
+end
+end;
+
+CREATE TRIGGER CHECK_TRGKHOA
+ON KHOA
+AFTER INSERT , UPDATE
+AS 
+BEGIN
+( SELECT 1 FROM INSERTED I
+INNER JOIN GIAOVIEN AS GV
+ON GV.MAKHOA = I.MAKHOA
+WHERE (I.TRGKHOA = GV.MAGV ) AND (GV.HOCVI ='TS' OR  GV.HOCVI='PTS')
+)
+BEGIN
+RAISERROR('LOI',16,1)
+ROLLBACK
+END
+END;
+
+CREATE TRIGGER CHECK_NGAYTHI
+ON KETQUATHI
+AFTER INSERT , UPDATE
+AS 
+BEGIN
+IF EXISTS ( SELECT 1 FROM inserted as i
+inner join GIANGDAY AS GD
+on i.MAMH = gd.MAMH 
+where i.NGTHI > gd.DENNGAY
+)
+begin
+raiserror('loi',16,1)
+rollback
+end
+end;
+
+CREATE TRIGGER  CHECK_HOCKY
+ON GIANGDAY
+AFTER INSERT , UPDATE
+AS
+BEGIN
+if exists ( select 1 from inserted as i
+inner join giangday as gd
+on gd.MALOP = i.MALOP
+where i.HOCKY = gd.HOCKY
+and i.NAM = gd.NAM
+group by GD.malop,GD.hocky,GD.NAM
+having count(distinct GD.MAMH ) > 3
+)	
+
+raiserror('loi',16,1)
+rollback
+END
+
+-- 17 si so cua lop bang so luong hoc vien thuoc lop d
+create trigger check_siso
+on LOP
+AFTER INSERT ,UPDATE
+AS 
+BEGIN
+if exists ( select count(MAHV),HV.MALOP AS TONGHS FROM HOCVIEN AS HV
+inner join inserted 
+on inserted.MALOP = HV.MALOP
+group by HV.MALOP 
+HAVING COUNT (MAHV) != SISO
+) 
+BEGIN
+		RAISERROR ('Sỉ số của một lớp bằng với số lượng học viên thuộc lớp đó.', 16, 1);
+		ROLLBACK TRANSACTION;
+	END;
+END;
+
+
+create trigger check_dieukien
+on dieukien
+after insert , update
+as
+begin
+if exists ( select 1 from inserted as i
+where (i.MAMH='A' and i.MAMH_TRUOC ='A')
+OR (I.MAMH = 'A' AND I.MAMH_TRUOC ='B')
+OR ( i.MAMH ='B' and i.MAMH_TRUOC ='A')
+)
+begin
+raiserror ('Khong thoa dieu kien',16,1)
+rollback transaction;
+end;
+end;
+
+CREATE TRIGGER check_luong_giaovien
+ON GIAOVIEN
+AFTER INSERT, UPDATE
+AS
+BEGIN
+    -- Cập nhật lương của các giáo viên có cùng học vị, học hàm, và hệ số lương
+    UPDATE GIAOVIEN
+    SET MUCLUONG = (
+        SELECT MUCLUONG
+        FROM inserted i
+        WHERE i.MAGV = (SELECT MAGV FROM inserted)
+    )
+    WHERE HOCVI = (SELECT HOCVI FROM inserted)
+    AND HOCHAM = (SELECT HOCHAM FROM inserted)
+    AND HESO = (SELECT HESO FROM inserted);
+END;
+-- Học viên chỉ được thi lại (lần thi >1) khi điểm của lần thi trước đó dưới 5.
+create trigger check_thilai
+on KETQUATHI
+AFTER INSERT , UPDATE
+AS
+BEGIN
+(
+SELECT 1 FROM INSERTED AS I
+WHERE I.DIEM < 5 AND I.LANTHI > 1
+
+)
+BEGIN
+raiserror ('Khong thoa dieu kien',16,1)
+rollback transaction;
+end;
+end;
+-- Ngày thi của lần thi sau phải lớn hơn ngày thi của lần thi trước (cùng học viên, cùng môn HOC)
+
+create trigger check_NGAYTHILAI
+ON KETQUATHI
+AFTER INSERT ,UPDATE
+AS
+BEGIN
+(
+SELECT 1 FROM inserted AS I 
+inner join KETQUATHI AS KQT 
+ON KQT.MAHV = I.MAHV
+WHERE KQT.MAHV = I.MAHV AND KQT.MAMH = I.MAMH AND KQT.LANTHI = I.LANTHI - 1 AND KQT.NGTHI < I.NGTHI
+)
+BEGIN
+RAISERROR ('Ngaỳ thi của lần thi sau phải lớn hơn ngày thi của lần thi trước' , 16 , 1 )
+ROLLBACK;
+END
+END;
+
+
+CREATE TRIGGER trg_check_prerequisites
+ON GIANGDAY
+AFTER INSERT
+AS
+BEGIN
+    DECLARE @MAMH VARCHAR(50);
+    DECLARE @MALOP VARCHAR(50);
+    
+    -- Lấy môn học và lớp từ bảng INSERTED
+    SELECT @MAMH = MAMH, @MALOP = MALOP FROM INSERTED;
+    
+    -- Kiểm tra các môn học phải học trước môn học đang được phân công
+    IF EXISTS (
+        SELECT 1
+        FROM DIEUKIEN d
+        WHERE d.MAMH = @MAMH
+        AND NOT EXISTS (
+            SELECT 1
+            FROM GIANGDAY g
+            WHERE g.MALOP = @MALOP
+            AND g.MAMH = d.MAMH_TRUOC
+        )
+    )
+    BEGIN
+        -- Nếu môn học phải học trước chưa được giảng dạy, hủy thao tác phân công giảng dạy
+        RAISERROR ('Không thể phân công giảng dạy môn này vì môn học phải học trước chưa được giảng dạy.', 16, 1);
+        ROLLBACK TRANSACTION;
+    END
+    ELSE
+    BEGIN
+        PRINT 'Môn học có thể được phân công giảng dạy.';
+    END
+END;
+
+--Giáo viên chỉ được phân công dạy những môn thuộc khoa giáo viên đó phụ trách
+create trigger check_giaoviengiangday
+on GIANGDAY
+AFTER INSERT , UPDATE
+AS 
+BEGIN
+
+IF NOT EXISTS ( SELECT 1 FROM inserted AS I
+INNER JOIN 
+GIAOVIEN AS GV
+ON I.MAGV = GV.MAGV
+INNER JOIN MONHOC AS MH
+ON MH.MAKHOA = GV.MAKHOA
+WHERE GV.MAKHOA = MH.MAKHOA
+)
+BEGIN
+RAISERROR(' Giáo viên chỉ được phân công dạy những môn thuộc khoa giáo viên đó phụ trách. ',16,1)
+ROLLBACK
+END
+END;
